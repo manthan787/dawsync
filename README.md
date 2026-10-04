@@ -1,84 +1,87 @@
 # DAWSync
 
-A local macOS app and a dependency-free REAPER Lua helper for audio collaboration
-between Ableton Live 12 Standard and REAPER 7 on Windows. Google Drive transports
-immutable revisions; native DAW projects remain available for further editing.
+DAWSync turns an Ableton Live Arrangement into a portable REAPER project and brings a bandmate's REAPER changes back into a new Ableton working set. It is built for bands who share projects through Google Drive and want each person to keep using their own DAW.
 
-## Run on this Mac
+It exchanges rendered audio, markers, tempo, and timing. Plugins, MIDI devices, and DAW-specific automation stay editable in their native project and are printed into the audio handoff.
 
-Open `dist/DAWSync.app`, choose an Ableton `.als` file and a locally available
-shared Google Drive folder, then click **Publish to REAPER**. The app creates an
-isolated render copy, controls Live's export dialog, validates the WAV files, and
-publishes a portable `.rpp` and manifest. It restores the source set afterward.
+> [!IMPORTANT]
+> DAWSync is an early preview. The current Mac build has been exercised locally with Ableton Live 12.4.5 and REAPER 7.81. The generated project is designed for REAPER 7 on Windows, but a native Windows compatibility pass is still pending. The repository does not yet ship a notarized installer.
 
-Use **Add project** in the sidebar for each song. Select a song to restore its
-Ableton working set, shared folder, loop choice, effect tail, and revision history.
-Existing single-project settings migrate automatically. New songs can share the
-same exchange folder; each has its own persistent project ID.
+![DAWSync desktop app showing two saved song projects and their shared revision history](docs/images/dawsync-main.png)
 
-Live must be stopped and any modal prompt resolved. macOS must allow DAWSync to
-control System Events and provide Accessibility access. DAWSync checks named
-controls and their resulting values, and never dismisses save/discard, missing
-plugin, missing media, or permission prompts.
+## How the round trip works
 
-**Sync saved changes automatically** watches the selected source set. A save is
-debounced for eight seconds. Incoming REAPER revisions are verified and imported
-into a new Ableton working set. Original tracks remain in the copy with their
-outputs disabled; returned audio starts at zero with warp off, unity gain, and
-no inherited master processing. Generated imports are marked as seen so they
-cannot start an export loop. The untouched original `.als` keeps its full state.
+```mermaid
+flowchart LR
+  subgraph Mac["Producer · Mac"]
+    A["Ableton Live<br/>Arrangement"]
+    M["DAWSync"]
+    N["New Ableton<br/>working set"]
+  end
 
-Automatic sync is off on app launch. Failed jobs pause it until the issue is
-resolved. It watches the song currently selected in the sidebar. Competing
-revisions remain separate and require an explicit selection.
+  G[("Google Drive<br/>verified revisions")]
 
-Use the **Bandmate setup** button for the bandmate instructions,
-or read [docs/WINDOWS.md](docs/WINDOWS.md).
+  subgraph Windows["Bandmate · Windows"]
+    R["REAPER<br/>local working copy"]
+    H["DAWSync.lua<br/>helper"]
+  end
 
-## Development
-
-```sh
-python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements-desktop.txt
-.venv/bin/python -m dawsync.app
-.venv/bin/python -m unittest discover -s tests -v
-.venv/bin/python scripts/build.py
+  A -->|Publish| M
+  M -->|WAV stems + session.rpp| G
+  G -->|Open complete revision| R
+  R -->|Save| H
+  H -->|Render + publish| G
+  G -->|Check or auto-import| M
+  M --> N
 ```
 
-Core conversion and validation use only the Python standard library. The GUI
-uses PySide6; PyInstaller bundles the interpreter, Qt, scripts, and Live schema
-fixture into a standalone `.app`.
+Every publish creates a new, immutable revision. DAWSync never edits the source Ableton set or a revision already shared through Drive.
 
-The schema fixture contains no audio. Generated audio, real songs, local settings,
-build outputs, and integration-test files are excluded from version control.
-
-CLI commands:
-
-```sh
-python3 -m dawsync.cli inspect /path/to/song.als
-python3 -m dawsync.cli prepare /path/to/song.als /path/to/new-job --loop
-python3 -m dawsync.cli publish /path/to/song.als /path/to/exchange --project-id song-id
-python3 -m dawsync.cli publish-renders /path/to/job /path/to/exchange --project-id song-id
-python3 -m dawsync.cli validate /path/to/revision
-python3 -m dawsync.cli import /path/to/revision /path/to/local-returns --original /path/to/song.als
+```mermaid
+flowchart LR
+  O["Original Ableton set"] -->|Make isolated copy| C["Temporary render set"]
+  C --> V1["Ableton revision"]
+  V1 --> W["REAPER working copy"]
+  W --> V2["REAPER revision"]
+  V2 --> N["New Ableton working set"]
+  O -. stays untouched .-> N
 ```
 
-The `publish-renders` command can finish a job after a manual/export-adapter
-recovery. Render WAVs must be in `job/renders` and match the track IDs recorded in
-`job/plan.json`; their lengths must match the requested range.
+## What everyone needs
 
-## Format and integrity
+| Person | Required |
+| --- | --- |
+| Ableton producer | macOS, Ableton Live 12 Standard, and the DAWSync app |
+| REAPER bandmate | REAPER 7 and the complete exported revision folder |
+| Everyone | Google Drive for desktop, with the shared exchange folder available offline |
 
-Each song has a persistent project ID. Each revision has a unique ID, source DAW,
-parent revision, track IDs, timing metadata, and a complete SHA-256 file inventory.
+Your bandmate needs no plugin, Python install, SWS extension, or DAWSync app to audition the handoff. They can open `session.rpp` directly. To send edits back automatically, they load the included `DAWSync.lua` action once and run it whenever REAPER restarts.
+
+## First export from Ableton
+
+1. Save the Live set and stop playback or recording.
+2. Open DAWSync and choose **Add project**.
+3. Select the `.als` file and the band's locally synced Google Drive folder.
+4. Choose the render range. A saved loop must start at `1.1.1`; otherwise, turn off **Use saved loop range** to export the complete Arrangement.
+5. Set an effect tail long enough for the song's reverbs and delays. Four seconds is the default.
+6. Select **Publish to REAPER** and let Live finish the automated export.
+7. Wait for Google Drive to finish syncing before sharing or opening the revision on another computer.
+
+macOS may ask for Accessibility and Automation access the first time DAWSync controls Live's export window. Enable DAWSync in **System Settings → Privacy & Security → Accessibility**, then retry the publish. DAWSync leaves save, missing-media, and plugin prompts for you to resolve.
+
+The left sidebar stores a separate profile for each song. Each profile remembers its source set, shared folder, loop choice, effect tail, current working set, and revision history. Automatic sync watches only the selected song and starts disabled whenever DAWSync launches.
+
+## Opening the handoff in REAPER
+
+Open the complete revision folder only after Drive finishes downloading it:
 
 ```text
-exchange/
+<shared folder>/
   <project-id>/
     revisions/
       <revision-id>/
-        manifest.json
         session.rpp
+        manifest.json
         DAWSync.lua
         codec.lua
         audio/
@@ -86,23 +89,42 @@ exchange/
           reference_main_main_mix.wav
 ```
 
-Revisions are staged locally. The manifest is copied last, but Drive can reorder
-uploads, so manifest arrival alone does not establish readiness: every file is
-checked for presence, size, and checksum. Changed revision identities are rejected.
-No Drive API credentials, web server, or external service is required.
+Keep that folder together. The project uses short ASCII filenames and relative media paths so it can move between macOS and Windows without path or filename changes. Track names remain readable inside REAPER, and the provided main mix is muted for reference.
 
-Local settings, revision state, jobs, returns, and error logs are stored in
-`~/Library/Application Support/DAWSync`. Set `DAWSYNC_HOME` to override this in
-integration tests. Private source songs and generated audio are never build assets.
+For a quick compatibility check, the bandmate only opens `session.rpp`. For a full round trip, follow the one-time helper setup in [Windows and REAPER setup](docs/WINDOWS.md).
 
-## Supported boundary
+## Bringing a REAPER update back
 
-This release is audio-first: Arrangement timing, constant tempo/4/4, track labels,
-markers, top-level buses, separate wet returns, printed audio, and a muted master
-reference. Full editable clip interchange and variable tempo/time signatures are
-future adapters. Do not treat baked individual tracks as an exact decomposition
-of nonlinear bus or master processing. Compare with the reference mix.
+After the bandmate saves with the helper running, Drive receives a new verified revision. On the Mac:
 
-The Live schema fixture was generated locally in Live 12.4.5. Live's project
-format is version-specific; both generated `.als` sets and accessibility control
-identifiers need validation after Live updates.
+1. Select the song in DAWSync.
+2. Choose **Check for updates**.
+3. Select the revision marked **Ready**.
+4. Choose **Import selected update**, then **Open Ableton return**.
+
+DAWSync creates a new Ableton set. Returned tracks start at `1.1.1`, use unity gain, have Warp disabled, and contain the printed REAPER edits and processing. The previous Ableton tracks remain in the new set with their outputs disabled, while the original `.als` file remains untouched.
+
+With **Sync saved changes** enabled, DAWSync watches the selected Ableton set and checks Drive periodically. It pauses on errors or simultaneous branches so you can choose which version should continue. It does not merge two people's musical changes automatically.
+
+## Troubleshooting
+
+| Symptom | What to do |
+| --- | --- |
+| Publish waits indefinitely | Stop playback and recording in Live, then resolve any open Live dialog. |
+| macOS blocks the export controls | Allow DAWSync under **Privacy & Security → Accessibility** and approve Automation access when prompted. |
+| Loop export is rejected | Move the saved loop start to `1.1.1`, or export the whole Arrangement. |
+| Revision says **Waiting for Drive** | Keep the folder available offline and wait for every file to finish syncing. DAWSync verifies file sizes and checksums. |
+| REAPER reports missing media | Open `session.rpp` in place and keep its sibling `audio` folder unchanged. |
+| The bandmate's saves do not appear | Run the DAWSync action again after restarting REAPER, save the local working copy, and wait until playback stops. |
+| DAWSync shows a separate branch | Two people published from the same parent revision. Select the branch to continue; both versions remain available. |
+| A long reverb is cut off | Increase **Effect tail** before the next Ableton publish. The REAPER helper currently adds four seconds on return. |
+
+## Current scope
+
+DAWSync currently supports Arrangement View, constant tempo, 4/4, mono or stereo RIFF WAV up to 192 kHz, top-level buses, separate returns, markers, printed effects and automation, and a muted master reference. Variable tempo, other time signatures, RF64, multichannel audio, editable MIDI exchange, and translation of plugin parameters are outside this version.
+
+Printed stems are not always an exact decomposition of a mix with nonlinear bus or master processing. Use the included main reference when checking the handoff.
+
+Local settings, render jobs, returned sets, revision state, and error logs live in `~/Library/Application Support/DAWSync`. Private songs and rendered audio are excluded from the repository.
+
+To run from source, build the macOS app, use the CLI, or understand the package format, see the [development guide](docs/DEVELOPMENT.md).

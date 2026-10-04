@@ -3,6 +3,10 @@
 The Mac producer publishes a folder containing `session.rpp`, `manifest.json`,
 `audio`, `DAWSync.lua`, and `codec.lua`. Keep the complete folder together.
 
+For a quick playback test, wait for the complete folder to download and open
+`session.rpp`. Nothing else needs to be installed. The helper setup below is only
+needed to publish recording, arrangement, edit, and mix changes back to Ableton.
+
 ## First session
 
 1. In Google Drive for desktop, make the band's exchange folder available offline.
