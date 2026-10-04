@@ -1,6 +1,12 @@
 # -*- mode: python ; coding: utf-8 -*-
 from pathlib import Path
+import re
 root = Path(SPECPATH)
+version_source = (root / 'dawsync/__init__.py').read_text(encoding='utf-8')
+version_match = re.search(r'^__version__\s*=\s*["\']([^"\']+)["\']', version_source, re.MULTILINE)
+if version_match is None:
+    raise RuntimeError('dawsync.__version__ is missing')
+app_version = version_match.group(1)
 
 a = Analysis(
     [str(root / 'scripts/desktop.py')],
@@ -49,7 +55,8 @@ app = BUNDLE(
     icon=None,
     bundle_identifier='local.dawsync.app',
     info_plist={
-        'CFBundleShortVersionString': '0.1.0',
+        'CFBundleShortVersionString': app_version,
+        'CFBundleVersion': app_version,
         'NSAppleEventsUsageDescription': 'DAWSync controls Ableton export controls through System Events to render your chosen song.',
         'NSHighResolutionCapable': True,
     },

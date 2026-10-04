@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dawsync"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Versioned audio collaboration between Ableton Live and REAPER"
 requires-python = ">=3.11"
 dependencies = []
@@ -19,3 +19,6 @@ dawsync-app = "dawsync.app:main"
 
 [tool.setuptools]
 packages = ["dawsync"]
+
+[tool.setuptools.dynamic]
+version = {attr = "dawsync.__version__"}

@@ -5,9 +5,21 @@ DAWSync turns an Ableton Live Arrangement into a portable REAPER project and bri
 It exchanges rendered audio, markers, tempo, and timing. Plugins, MIDI devices, and DAW-specific automation stay editable in their native project and are printed into the audio handoff.
 
 > [!IMPORTANT]
-> DAWSync is an early preview. The current Mac build has been exercised locally with Ableton Live 12.4.5 and REAPER 7.81. The generated project is designed for REAPER 7 on Windows, but a native Windows compatibility pass is still pending. The repository does not yet ship a notarized installer.
+> DAWSync is an early preview. The current Mac build has been exercised locally with Ableton Live 12.4.5 and REAPER 7.81. The generated project is designed for REAPER 7 on Windows, but a native Windows compatibility pass is still pending. Release builds are ad-hoc signed but not yet Apple-notarized.
 
 ![DAWSync desktop app showing two saved song projects and their shared revision history](docs/images/dawsync-main.png)
+
+## Download
+
+Download the latest build from [GitHub Releases](https://github.com/manthan787/dawsync/releases/latest):
+
+- **Apple Silicon** for M-series Macs
+- **Intel** for Intel Macs
+- **REAPER helper** for the two dependency-free Lua files and Windows instructions
+
+Unzip the Mac download, Control-click **DAWSync**, and choose **Open** the first time. This is the standard one-time path for an app that is signed but not yet notarized. macOS will separately request Accessibility and Automation access when DAWSync first controls Ableton.
+
+Each release includes `SHA256SUMS.txt` for verifying the downloads. The REAPER helper is already bundled into every project exported by DAWSync, so bandmates normally do not need the separate helper download.
 
 ## How the round trip works
 
