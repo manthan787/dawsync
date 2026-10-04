@@ -11,7 +11,7 @@ import traceback
 
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, Signal, Qt
 from PySide6.QtGui import QColor, QFont
-from PySide6.QtWidgets import QApplication, QFileDialog, QMainWindow, QMessageBox, QTableWidgetItem, QListWidgetItem
+from PySide6.QtWidgets import QApplication, QFileDialog, QMainWindow, QMessageBox, QTableWidgetItem
 
 from .ableton import inspect_set
 from .common import SyncError, sha256
@@ -67,7 +67,7 @@ class Window(QMainWindow):
         self.threadpool.setMaxThreadCount(1)
         build_window(self)
         self.refresh_projects()
-        self.projects_list.currentItemChanged.connect(self.project_selected)
+        self.projects_list.projectSelected.connect(self.project_selected)
         self.source.editingFinished.connect(self.source_edited)
         self.exchange.editingFinished.connect(self.save_config)
         self.loop.toggled.connect(self.save_config)
@@ -105,17 +105,9 @@ class Window(QMainWindow):
             self.summary.setText(str(exc))
 
     def refresh_projects(self):
-        self.projects_list.blockSignals(True)
-        self.projects_list.clear()
         for pid, entry in self.projects.entries.items():
             text = entry.get("project_name") or (Path(entry["source"]).stem if entry.get("source") else "New project")
-            item = QListWidgetItem(text)
-            item.setData(Qt.ItemDataRole.UserRole, pid)
-            item.setToolTip(entry.get("source", "Choose an Ableton project"))
-            self.projects_list.addItem(item)
-            if pid == self.projects.active:
-                self.projects_list.setCurrentItem(item)
-        self.projects_list.blockSignals(False)
+            self.projects_list.update_project(pid, text, entry.get("source", ""), pid == self.projects.active)
 
     def add_project(self):
         if self.busy:
@@ -128,10 +120,10 @@ class Window(QMainWindow):
         pid = self.projects.add(Path(path), exchange)
         self.activate_project(pid)
 
-    def project_selected(self, item, previous=None):
-        if item is not None and not self.busy:
+    def project_selected(self, pid):
+        if not self.busy:
             self.save_config()
-            self.activate_project(item.data(Qt.ItemDataRole.UserRole))
+            self.activate_project(pid)
 
     def activate_project(self, pid):
         self.projects.active = pid
@@ -205,7 +197,7 @@ class Window(QMainWindow):
         for button in self.setup_buttons:
             button.setEnabled(False)
         self.status.setText(description)
-        for b in (self.publish_button, self.check_button, self.import_button):
+        for b in (self.publish_button, self.check_button, self.import_button, self.open_button):
             b.setEnabled(False)
         job = Job(operation)
         self.current_job = job
@@ -218,7 +210,7 @@ class Window(QMainWindow):
             self.exchange.setEnabled(True)
             for button in self.setup_buttons:
                 button.setEnabled(True)
-            for b in (self.publish_button, self.check_button, self.import_button):
+            for b in (self.publish_button, self.check_button, self.import_button, self.open_button):
                 b.setEnabled(True)
             self.status.setText("Ready · originals are preserved")
             complete(result)
@@ -233,7 +225,7 @@ class Window(QMainWindow):
             if self.auto.isChecked():
                 self.auto.setChecked(False)
                 self.log("Automatic sync paused. Resolve the issue and enable it again to retry.")
-            for b in (self.publish_button, self.check_button, self.import_button):
+            for b in (self.publish_button, self.check_button, self.import_button, self.open_button):
                 b.setEnabled(True)
             self.status.setText("Paused · " + message.splitlines()[0])
             self.log(message)
@@ -292,14 +284,17 @@ class Window(QMainWindow):
             for i, entry in enumerate(entries):
                 m = entry.get("manifest", {})
                 for col, text in enumerate((entry["folder"].name[:12], m.get("source_daw", "—"), str(len(m.get("tracks", []))), entry["status"])):
-                    item = QTableWidgetItem(text.upper() if col == 1 else text)
+                    item = self.table.item(i, col)
+                    if item is None:
+                        item = QTableWidgetItem()
+                        self.table.setItem(i, col, item)
+                    item.setText(text.upper() if col == 1 else text)
                     if col == 0:
                         item.setFont(QFont("Menlo", 12))
                         item.setForeground(QColor("#ccd4e5"))
                     if col == 3:
                         colors = {"Ready": "#a99cff", "Published": "#8a9cb7", "Imported": "#8fd3bc", "Separate branch": "#e7bc83", "Waiting for Drive": "#e7bc83"}
                         item.setForeground(QColor(colors[entry["status"]]))
-                    self.table.setItem(i, col, item)
             if self.auto.isChecked():
                 ready = [e for e in entries if e["status"] == "Ready"]
                 if len(ready) == 1:

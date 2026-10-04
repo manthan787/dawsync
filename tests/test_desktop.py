@@ -49,7 +49,7 @@ class DesktopTests(unittest.TestCase):
         second = w.projects.add(Path(self.temp.name) / "Second.als", "/second-drive")
         w.activate_project(second)
         w.tail.setValue(8)
-        w.projects_list.setCurrentRow(0)
+        w.projects_list.buttons[first].click()
         self.assertEqual(w.config["project_id"], first)
         self.assertEqual(w.tail.value(), 14)
         self.assertFalse(w.loop.isChecked())
@@ -60,6 +60,11 @@ class DesktopTests(unittest.TestCase):
         self.assertEqual(len(restored.entries), 2)
         self.assertEqual(restored.entries[second]["tail"], 8)
         self.assertEqual(restored.active, first)
+        # Native accessibility clients select a checkable button through its
+        # toggle action; that must open the song just like a mouse press.
+        w.projects_list.buttons[second].setChecked(True)
+        self.assertEqual(w.config["project_id"], second)
+        self.assertEqual(w.tail.value(), 8)
 
     def test_controls_do_not_overlap_when_window_is_smaller(self):
         w = self.window

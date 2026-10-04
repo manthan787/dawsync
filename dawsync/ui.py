@@ -1,8 +1,8 @@
 """Desktop presentation, kept separate from the sync engine."""
-from PySide6.QtCore import Qt, QSize, QRectF
+from PySide6.QtCore import Qt, QSize, QRectF, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPainterPath
-from PySide6.QtWidgets import (QCheckBox, QFrame, QGridLayout, QHBoxLayout,
-    QHeaderView, QLabel, QLayout, QLineEdit, QListWidget, QPushButton,
+from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QFrame, QGridLayout, QHBoxLayout,
+    QHeaderView, QLabel, QLayout, QLineEdit, QPushButton,
     QScrollArea, QSizePolicy, QSpinBox, QTableWidget, QTextEdit, QVBoxLayout, QWidget)
 
 
@@ -11,11 +11,13 @@ QMainWindow, QWidget#workspace { background: #0d1018; }
 QWidget#content, QScrollArea { background: #0d1018; border: none; }
 QWidget { color: #edf0f7; font-family: 'SF Pro Text', 'Helvetica Neue'; font-size: 13px; }
 QFrame#sidebar { background: #11151f; border-right: 1px solid #252c3b; }
-QListWidget { background: transparent; border: none; outline: 0; }
-QListWidget::item { padding: 12px; margin: 3px 0; border-radius: 9px; color: #a5b0c5; }
-QListWidget::item:hover { background: #1d2433; color: #e1e7f2; }
-QListWidget::item:selected { background: #2c2542; color: #d8caff; }
-QListWidget:disabled { color: #68748a; }
+QScrollArea#projectList, QWidget#projectItems { background: #11151f; border: none; }
+QPushButton#project { background: transparent; border: none; color: #a5b0c5;
+    text-align: left; padding: 10px 14px; border-radius: 9px; font-weight: 500; }
+QPushButton#project:hover { background: #1d2433; color: #e1e7f2; }
+QPushButton#project:checked { background: #2c2542; color: #d8caff; }
+QPushButton#project:focus { border: 1px solid #776395; }
+QPushButton#project:disabled { color: #68748a; }
 QFrame#card { background: #171c28; border: 1px solid #2a3141; border-radius: 16px; }
 QFrame#activityCard { background: #121722; border: 1px solid #252d3c; border-radius: 16px; }
 QLabel { background: transparent; border: none; }
@@ -99,6 +101,51 @@ class BridgeMark(QWidget):
         p.drawLine(12, 28, 16, 32)
 
 
+class ProjectList(QScrollArea):
+    """Real buttons keep each song accessible without Qt's virtual list cells."""
+    projectSelected = Signal(str)
+
+    def __init__(self):
+        super().__init__()
+        self.setObjectName("projectList")
+        self.setWidgetResizable(True)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.buttons = {}
+        self.group = QButtonGroup(self)
+        self.group.setExclusive(True)
+        self.group.buttonToggled.connect(self.selected)
+        content = QWidget()
+        content.setObjectName("projectItems")
+        self.items = QVBoxLayout(content)
+        self.items.setContentsMargins(0, 0, 0, 0)
+        self.items.setSpacing(8)
+        self.items.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.setWidget(content)
+
+    def selected(self, button, checked):
+        if checked:
+            self.projectSelected.emit(button.property("projectId"))
+
+    def update_project(self, pid, title, source, active):
+        button = self.buttons.get(pid)
+        if button is None:
+            button = QPushButton()
+            button.setObjectName("project")
+            button.setProperty("projectId", pid)
+            button.setCheckable(True)
+            button.setFixedHeight(42)
+            self.group.addButton(button)
+            self.items.addWidget(button)
+            self.buttons[pid] = button
+        button.setText(button.fontMetrics().elidedText(title, Qt.TextElideMode.ElideRight, 150))
+        button.setAccessibleName(title)
+        button.setToolTip(title + ("\n" + source if source else ""))
+        if active:
+            self.group.blockSignals(True)
+            button.setChecked(True)
+            self.group.blockSignals(False)
+
+
 class Toggle(QCheckBox):
     def sizeHint(self):
         return QSize(210, 30)
@@ -180,10 +227,8 @@ def build_window(w):
     side.addWidget(label("Your studio, connected.", "muted"))
     side.addSpacing(22)
     side.addWidget(label("PROJECTS", "eyebrow"))
-    w.projects_list = QListWidget()
+    w.projects_list = ProjectList()
     w.projects_list.setAccessibleName("Saved projects")
-    w.projects_list.setTextElideMode(Qt.TextElideMode.ElideRight)
-    w.projects_list.setSpacing(2)
     side.addWidget(w.projects_list, 1)
     w.add_project_button = QPushButton("+  Add project")
     w.add_project_button.clicked.connect(w.add_project)
