@@ -130,4 +130,3 @@ def wav_info(path: Path) -> dict:
     if frames == 0:
         raise SyncError(f"Empty WAV: {path.name}")
     return {**fmt, "frames": frames, "duration": frames / fmt["sample_rate"], "size": size}
-
