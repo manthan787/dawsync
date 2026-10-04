@@ -16,10 +16,15 @@ from .state import State
 DATA = Path(os.environ.get("DAWSYNC_HOME", str(Path.home() / "Library/Application Support/DAWSync")))
 
 
+def expected_render_duration(plan: dict) -> float:
+    beats_per_bar = plan.get("numerator", 4) * 4 / plan.get("denominator", 4)
+    return plan["bars"] * beats_per_bar * 60 / plan["bpm"]
+
+
 def publish_completed(job: Path, exchange: Path, project_id: str, state_path: Path) -> Path:
     plan = read_json(job / "plan.json")
     sources = exported_sources(job, plan)
-    expected = plan["bars"] * 4 * 60 / plan["bpm"]
+    expected = expected_render_duration(plan)
     for source in sources:
         info = wav_info(Path(source["path"]))
         if abs(info["duration"] - expected) > 1.5 / info["sample_rate"]:
@@ -28,6 +33,7 @@ def publish_completed(job: Path, exchange: Path, project_id: str, state_path: Pa
     try:
         folder = create_revision(exchange, project_id=project_id, project_name=plan["name"],
                                  sources=sources, bpm=plan["bpm"], markers=plan["markers"],
+                                 numerator=plan.get("numerator", 4), denominator=plan.get("denominator", 4),
                                  content_end_seconds=plan.get("content_end_seconds"),
                                  original_set_hash=plan["source_hash"], parent_revision=state.head(project_id))
         m = validate(folder)
@@ -58,7 +64,7 @@ def publish(source: Path, exchange: Path, project_id: str, *, use_loop=True, tai
             sources = exported_sources(job, plan)
             signature = tuple((str(s["path"]), Path(s["path"]).stat().st_size, Path(s["path"]).stat().st_mtime_ns) for s in sources)
             info = [wav_info(Path(s["path"])) for s in sources]
-            expected = plan["bars"] * 4 * 60 / plan["bpm"]
+            expected = expected_render_duration(plan)
             if any(abs(x["duration"] - expected) > 1.5 / x["sample_rate"] for x in info):
                 raise SyncError("Live is still rendering.")
             if signature != stable_signature:

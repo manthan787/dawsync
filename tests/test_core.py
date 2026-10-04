@@ -6,9 +6,12 @@ import struct
 import tempfile
 import unittest
 import wave
+import xml.etree.ElementTree as ET
 
-from dawsync.ableton import inspect_set, import_revision, load_set, prepare_render, put, save_set, value
+from dawsync.ableton import (decode_time_signature, encode_time_signature, inspect_set,
+                            import_revision, load_set, prepare_render, put, save_set, value)
 from dawsync.common import SyncError, atomic_json, inside, read_json, safe_name, sha256, wav_info
+from dawsync.engine import expected_render_duration
 from dawsync.package import ROOT, create_revision, validate
 from dawsync.rpp import project_text
 from dawsync.state import State
@@ -46,6 +49,19 @@ class CoreTests(unittest.TestCase):
         path = self.root / "original.als"
         save_set(path, r)
         return path
+
+    def set_signature(self, path, numerator, denominator):
+        root = load_set(path)
+        main = root.find("LiveSet/MainTrack")
+        encoded = encode_time_signature(numerator, denominator)
+        put(main, "DeviceChain/Mixer/TimeSignature/Manual", encoded)
+        target = main.find("DeviceChain/Mixer/TimeSignature/AutomationTarget").get("Id")
+        for envelope in main.findall("AutomationEnvelopes/Envelopes/AutomationEnvelope"):
+            if value(envelope, "EnvelopeTarget/PointeeId") == target:
+                for event in envelope.findall("Automation/Events/*"):
+                    event.set("Value", str(encoded))
+        save_set(path, root)
+        return root
 
     def test_portable_names_and_relative_paths(self):
         p = self.package()
@@ -180,6 +196,58 @@ class CoreTests(unittest.TestCase):
         self.wav.unlink()
         with self.assertRaisesRegex(SyncError, "Missing source samples"):
             inspect_set(original)
+
+    def test_constant_time_signature_round_trip(self):
+        source = self.original()
+        self.set_signature(source, 6, 8)
+        info = inspect_set(source)
+        self.assertEqual((info.numerator, info.denominator), (6, 8))
+        for signature in ((2, 2), (3, 4), (5, 4), (6, 8), (7, 8), (12, 16)):
+            with self.subTest(signature=signature):
+                self.assertEqual(decode_time_signature(encode_time_signature(*signature)), signature)
+
+        plan = prepare_render(source, self.root / "meter-job", tail_seconds=0, use_loop=True)
+        self.assertEqual((plan["numerator"], plan["denominator"]), (6, 8))
+        self.assertEqual(plan["bars"], 6)
+        self.assertEqual(expected_render_duration(plan), 9)
+        render = load_set(Path(plan["render_set"]))
+        self.assertEqual(float(value(render, "LiveSet/Transport/LoopLength")), 18)
+
+        folder = self.package(numerator=6, denominator=8, source_daw="reaper")
+        manifest = validate(folder)
+        self.assertEqual(manifest["tempo"], {"bpm": 120, "numerator": 6, "denominator": 8})
+        self.assertIn("  TEMPO 120 6 8", (folder / "session.rpp").read_text())
+
+        # The incoming revision changes a fresh 4/4 source copy to 6/8 while
+        # leaving that original file untouched.
+        original = self.original()
+        before = sha256(original)
+        returned = import_revision(folder, self.root / "meter-return", original)
+        self.assertEqual(sha256(original), before)
+        returned_info = inspect_set(returned)
+        self.assertEqual((returned_info.numerator, returned_info.denominator), (6, 8))
+        returned_root = load_set(returned)
+        self.assertEqual(value(returned_root, "LiveSet/MainTrack/DeviceChain/Mixer/TimeSignature/Manual"),
+                         str(encode_time_signature(6, 8)))
+
+    def test_time_signature_changes_are_rejected(self):
+        source = self.original()
+        root = self.set_signature(source, 6, 8)
+        main = root.find("LiveSet/MainTrack")
+        target = main.find("DeviceChain/Mixer/TimeSignature/AutomationTarget").get("Id")
+        envelope = next(e for e in main.findall("AutomationEnvelopes/Envelopes/AutomationEnvelope")
+                        if value(e, "EnvelopeTarget/PointeeId") == target)
+        ET.SubElement(envelope.find("Automation/Events"), "EnumEvent", Id="1", Time="4",
+                      Value=str(encode_time_signature(4, 4)))
+        save_set(source, root)
+        with self.assertRaisesRegex(SyncError, "meter-map adapter"):
+            inspect_set(source)
+
+    def test_reaper_helper_preserves_constant_signature(self):
+        helper = (ROOT / "reaper" / "DAWSync.lua").read_text()
+        self.assertIn("m.tempo.numerator..' '..m.tempo.denominator", helper)
+        self.assertIn("numerator=numerator,denominator=denominator", helper)
+        self.assertNotIn("requires constant 4/4", helper)
 
     def test_nonfinite_manifest_and_invalid_parent(self):
         p = self.package(); m = validate(p)

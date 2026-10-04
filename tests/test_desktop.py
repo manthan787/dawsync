@@ -27,7 +27,7 @@ class DesktopTests(unittest.TestCase):
         self.data = patch.object(app, "DATA", Path(self.temp.name))
         self.data.start()
         self.inspect = patch.object(app, "inspect_set", side_effect=lambda p: SimpleNamespace(
-            name=p.stem, bpm=120, tracks=[{"transfer": True}]))
+            name=p.stem, bpm=120, numerator=4, denominator=4, tracks=[{"transfer": True}]))
         self.inspect.start()
         self.window = app.Window()
         self.window.timer.stop()

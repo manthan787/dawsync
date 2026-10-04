@@ -12,6 +12,31 @@ from .common import SyncError, atomic_json, inside, read_json, safe_name, sha256
 from .package import ROOT, validate
 
 
+TIME_SIGNATURE_DENOMINATORS = (1, 2, 4, 8, 16, 32)
+
+
+def encode_time_signature(numerator: int, denominator: int) -> int:
+    """Encode a constant meter using Live's TimeSignature enum."""
+    if type(numerator) is not int or not 1 <= numerator <= 32:
+        raise SyncError("Invalid time signature numerator.")
+    if type(denominator) is not int or denominator not in TIME_SIGNATURE_DENOMINATORS:
+        raise SyncError("Invalid time signature denominator.")
+    return (denominator.bit_length() - 1) * 99 + numerator - 1
+
+
+def decode_time_signature(encoded: str | int) -> tuple[int, int]:
+    try:
+        encoded = int(encoded)
+    except (TypeError, ValueError) as exc:
+        raise SyncError("Invalid Ableton time signature.") from exc
+    exponent, numerator_minus_one = divmod(encoded, 99)
+    denominator = 1 << exponent if 0 <= exponent <= 5 else 0
+    numerator = numerator_minus_one + 1
+    if not 1 <= numerator <= 32 or denominator not in TIME_SIGNATURE_DENOMINATORS:
+        raise SyncError("Unsupported Ableton time signature.")
+    return numerator, denominator
+
+
 def load_set(path: Path) -> ET.Element:
     raw = path.read_bytes()
     if raw[:2] == b"\x1f\x8b":
@@ -71,13 +96,21 @@ class SetInfo:
     source: Path
     name: str
     bpm: float
+    numerator: int
+    denominator: int
     end_beats: float
     tracks: list[dict]
     markers: list[dict]
     source_hash: str
 
+    @property
+    def beats_per_bar(self):
+        # Live positions use quarter-note beats regardless of the denominator.
+        return self.numerator * 4 / self.denominator
+
     def render_bars(self, tail_seconds: float = 4):
-        return max(1, math.ceil((self.end_beats + tail_seconds * self.bpm / 60) / 4))
+        beats = self.end_beats + tail_seconds * self.bpm / 60
+        return max(1, math.ceil(beats / self.beats_per_bar))
 
 
 def inspect_set(source: Path) -> SetInfo:
@@ -87,6 +120,8 @@ def inspect_set(source: Path) -> SetInfo:
     s = root.find("LiveSet")
     main = s.find("MainTrack")
     bpm = float(value(main, "DeviceChain/Mixer/Tempo/Manual", "120"))
+    signature_value = value(main, "DeviceChain/Mixer/TimeSignature/Manual", "201")
+    numerator, denominator = decode_time_signature(signature_value)
     # Never silently flatten tempo automation into the wrong musical grid.
     tempo_target = main.find("DeviceChain/Mixer/Tempo/AutomationTarget").get("Id")
     signature_target = main.find("DeviceChain/Mixer/TimeSignature/AutomationTarget")
@@ -96,10 +131,10 @@ def inspect_set(source: Path) -> SetInfo:
         events = list(envelope.findall("Automation/Events/*"))
         if target == tempo_target and any(abs(float(e.get("Value", bpm)) - bpm) > 1e-7 for e in events):
             raise SyncError("Tempo automation needs a tempo-map adapter; automatic transfer is paused for this set.")
-        if target == signature_id and any(e.get("Value") != "201" for e in events):
-            raise SyncError("This version supports a constant 4/4 time signature.")
-    if value(main, "DeviceChain/Mixer/TimeSignature/Manual", "201") != "201":
-        raise SyncError("This version supports a constant 4/4 time signature.")
+        if target == signature_id:
+            signatures = [decode_time_signature(e.get("Value")) for e in events]
+            if any(item != (numerator, denominator) for item in signatures):
+                raise SyncError("Time-signature automation needs a meter-map adapter; automatic transfer is paused for this set.")
     tracks = []
     for t in s.findall("Tracks/*"):
         annotation = value(t, "Name/Annotation")
@@ -123,7 +158,7 @@ def inspect_set(source: Path) -> SetInfo:
                         "seconds": float(value(loc, "Time", "0")) * 60 / bpm})
     metadata = source.parent / "dawsync.json"
     name = read_json(metadata).get("project_name", source.stem) if metadata.is_file() else source.stem
-    return SetInfo(source, name, bpm, end, tracks, markers, sha256(source))
+    return SetInfo(source, name, bpm, numerator, denominator, end, tracks, markers, sha256(source))
 
 
 def prepare_render(source: Path, job: Path, tail_seconds: float = 4, use_loop: bool = False) -> dict:
@@ -142,12 +177,13 @@ def prepare_render(source: Path, job: Path, tail_seconds: float = 4, use_loop: b
         put(t, "Name/UserName", meta["render_name"])
         put(t, "Name/EffectiveName", meta["render_name"])
     put(root, "LiveSet/Transport/LoopStart", 0)
-    put(root, "LiveSet/Transport/LoopLength", info.render_bars(tail_seconds) * 4)
+    put(root, "LiveSet/Transport/LoopLength", info.render_bars(tail_seconds) * info.beats_per_bar)
     put(root, "LiveSet/Transport/CurrentTime", 0)
     render_set = job / "render.als"
     save_set(render_set, root)
     plan = {"source": str(info.source), "source_hash": info.source_hash, "name": info.name,
-            "bpm": info.bpm, "bars": info.render_bars(tail_seconds), "tracks": info.tracks,
+            "bpm": info.bpm, "numerator": info.numerator, "denominator": info.denominator,
+            "bars": info.render_bars(tail_seconds), "tracks": info.tracks,
             "markers": [m for m in info.markers if m["seconds"] <= info.end_beats * 60 / info.bpm],
             "render_set": str(render_set), "tail_seconds": tail_seconds, "use_loop": use_loop,
             "content_end_seconds": info.end_beats * 60 / info.bpm}
@@ -212,8 +248,14 @@ def import_revision(folder: Path, destination: Path, original: Path | None = Non
     next_id = max([int(e.get("Id", "-1")) for e in root.iter()] + [int(value(s, "NextPointeeId", "0"))]) + 100
     main = s.find("MainTrack")
     put(main, "DeviceChain/Mixer/Tempo/Manual", m["tempo"]["bpm"])
-    if m["tempo"]["numerator"] != 4 or m["tempo"]["denominator"] != 4:
-        raise SyncError("Live import currently supports constant 4/4 projects.")
+    signature = encode_time_signature(m["tempo"]["numerator"], m["tempo"]["denominator"])
+    put(main, "DeviceChain/Mixer/TimeSignature/Manual", signature)
+    signature_target = main.find("DeviceChain/Mixer/TimeSignature/AutomationTarget")
+    signature_id = signature_target.get("Id") if signature_target is not None else None
+    for envelope in main.findall("AutomationEnvelopes/Envelopes/AutomationEnvelope"):
+        if value(envelope, "EnvelopeTarget/PointeeId") == signature_id:
+            for event in envelope.findall("Automation/Events/*"):
+                event.set("Value", str(signature))
     # Source master processing is already heard in the reference. Audio
     # stems are pre-master, and a new mix must not run through an old master.
     main.find("DeviceChain/DeviceChain/Devices").clear()

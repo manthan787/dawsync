@@ -121,7 +121,7 @@ With **Sync saved changes** enabled, DAWSync watches the selected Ableton set an
 
 ## Current scope
 
-DAWSync currently supports Arrangement View, constant tempo, 4/4, mono or stereo RIFF WAV up to 192 kHz, top-level buses, separate returns, markers, printed effects and automation, and a muted master reference. Variable tempo, other time signatures, RF64, multichannel audio, editable MIDI exchange, and translation of plugin parameters are outside this version.
+DAWSync currently supports Arrangement View, constant tempo, constant time signatures such as 3/4, 5/4, 6/8, and 7/8, mono or stereo RIFF WAV up to 192 kHz, top-level buses, separate returns, markers, printed effects and automation, and a muted master reference. Tempo or time-signature changes within a song, RF64, multichannel audio, editable MIDI exchange, and translation of plugin parameters are outside this version.
 
 Printed stems are not always an exact decomposition of a mix with nonlinear bus or master processing. Use the included main reference when checking the handoff.
 

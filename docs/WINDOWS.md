@@ -48,7 +48,8 @@ musical changes automatically.
 ## Current limits
 
 - Ableton Live 12 Standard and REAPER 7 are the target versions.
-- Constant tempo and 4/4 are supported. Tempo-map changes stop transfer explicitly.
+- Constant tempo and constant time signatures such as 3/4, 5/4, 6/8, and 7/8
+  are supported. Tempo or time-signature changes stop transfer explicitly.
 - Audio cuts/stretching/FX/automation are printed into full-length tracks.
 - Bus and master FX parameters are retained in native projects, not translated.
 - Mono/stereo RIFF WAV up to 192 kHz is supported; RF64 and multichannel audio

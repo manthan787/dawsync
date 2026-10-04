@@ -99,7 +99,7 @@ local function wav(path)
 end
 local function project_text(m)
   local lines={'<REAPER_PROJECT 0.1 7 1','  RIPPLE 0','  TIMELOCKMODE 0','  MASTER_VOLUME 1',
-    '  SAMPLERATE '..m.sample_rate,'  TEMPO '..m.tempo.bpm..' 4 4','  RECORD_PATH "recordings"',
+    '  SAMPLERATE '..m.sample_rate,'  TEMPO '..m.tempo.bpm..' '..m.tempo.numerator..' '..m.tempo.denominator,'  RECORD_PATH "recordings"',
     '  <EXTSTATE','    <DAWSYNC','      project_id '..q(m.project_id),'      revision_id '..q(m.revision_id),
     '      content_end_seconds '..q(tostring(m.content_end_seconds)),'    >','  >'}
   for _,mark in ipairs(m.markers) do lines[#lines+1]=string.format('  MARKER %d %.12g %s 0',mark.index,mark.seconds,q(mark.name)) end
@@ -124,10 +124,12 @@ local function publish(project,exchange)
   local parent=ext(project,"revision_id")
   assert(project_id~="" and parent~="","Project has no DAWSync identity")
   local numerator,denominator,bpm=reaper.TimeMap_GetTimeSigAtTime(project,0)
-  assert(numerator==4 and denominator==4,"This version requires constant 4/4")
+  assert(numerator>=1 and numerator<=32 and (denominator==1 or denominator==2 or denominator==4 or denominator==8 or denominator==16 or denominator==32),
+    "Unsupported project time signature")
   for i=0,reaper.CountTempoTimeSigMarkers(project)-1 do
     local _,time,_,_,mbpm,num,den=reaper.GetTempoTimeSigMarker(project,i)
-    assert(mbpm==bpm and (num==0 or num==4) and (den==0 or den==4),"Tempo or signature changes need a tempo-map adapter")
+    assert(math.abs(mbpm-bpm)<0.0000001 and (num==0 or num==numerator) and (den==0 or den==denominator),
+      "Tempo or time-signature changes need a map adapter")
   end
   local rid=guid()
   local stage=join(reaper.GetResourcePath(),"DAWSync/jobs/"..rid)
@@ -217,7 +219,7 @@ local function publish(project,exchange)
   local render_state=reaper.GetProjectStateChangeCount(project)
   local m={schema=1,kind="dawsync-revision",project_id=project_id,project_name=ext(project,"project_name"),
     revision_id=rid,parent_revision=parent,source_daw="reaper",created_at=os.date("!%Y-%m-%dT%H:%M:%SZ"),
-    sample_rate=rate,tempo={bpm=bpm,numerator=4,denominator=4},tracks=tracks,markers=codec.array(),
+    sample_rate=rate,tempo={bpm=bpm,numerator=numerator,denominator=denominator},tracks=tracks,markers=codec.array(),
     content_end_seconds=content_end,
     reaper_project="session.rpp",render_policy="top-level post-fader buses and separate returns; master is a muted reference"}
   local index=0

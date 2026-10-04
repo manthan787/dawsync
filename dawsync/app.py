@@ -100,7 +100,7 @@ class Window(QMainWindow):
             info = inspect_set(Path(self.source.text()))
             self.config["project_name"] = info.name
             self.song_name.setText(info.name)
-            self.summary.setText(f"{info.bpm:g} BPM  ·  {sum(t['transfer'] for t in info.tracks)} audio buses & returns  ·  Ableton Live ↔ REAPER")
+            self.summary.setText(f"{info.bpm:g} BPM  ·  {info.numerator}/{info.denominator}  ·  {sum(t['transfer'] for t in info.tracks)} audio buses & returns  ·  Ableton Live ↔ REAPER")
         except Exception as exc:
             self.summary.setText(str(exc))
 
